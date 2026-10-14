@@ -327,7 +327,7 @@ const restartCancelledWorkSurvivesStaleRunUpdate = Effect.gen(function* () {
   assert.deepEqual(updated?.restartCancelledBackgroundWork, work);
 });
 
-const threadWorktreePathsSkipDeletedThreads = Effect.gen(function* () {
+const threadWorktreePathsReadActiveThreads = Effect.gen(function* () {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
   const create = (id: string, input: { worktreePath: string | null; archived?: boolean }) => {
@@ -377,19 +377,13 @@ const threadWorktreePathsSkipDeletedThreads = Effect.gen(function* () {
     payload: { ...deleted, deletedAt: now },
   });
 
-  assert.deepEqual(
-    (yield* store.getThreadWorktreePaths()).toSorted((left, right) =>
-      left.threadId.localeCompare(right.threadId),
-    ),
-    [
-      { threadId: ThreadId.make("thread:active"), worktreePath: "/worktrees/active" },
-      { threadId: ThreadId.make("thread:archived"), worktreePath: "/worktrees/archived" },
-    ],
-  );
+  assert.deepEqual(yield* store.getThreadWorktreePaths(), [
+    { threadId: ThreadId.make("thread:active"), worktreePath: "/worktrees/active" },
+  ]);
 });
 
-it.effect("memory worktree path lookup skips deleted threads and keeps archived ones", () =>
-  threadWorktreePathsSkipDeletedThreads.pipe(Effect.provide(ProjectionStore.layerMemory)),
+it.effect("memory worktree path lookup reads only active threads", () =>
+  threadWorktreePathsReadActiveThreads.pipe(Effect.provide(ProjectionStore.layerMemory)),
 );
 
 it.effect("memory projection keeps restart-cancelled work through a stale run.updated", () =>
@@ -619,8 +613,8 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     () => runlessNativeSubagentNeedsRecovery,
   );
   it.effect(
-    "worktree path lookup skips deleted threads and keeps archived ones",
-    () => threadWorktreePathsSkipDeletedThreads,
+    "worktree path lookup reads only active threads",
+    () => threadWorktreePathsReadActiveThreads,
   );
 
   it.effect(

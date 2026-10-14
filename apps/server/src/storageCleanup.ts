@@ -249,11 +249,12 @@ const make = Effect.gen(function* () {
       Effect.orElseSucceed(() => null),
     );
 
+  // Active threads only: archived threads are not candidates and do not count
+  // as sharing a worktree. The recheck's getThreadWorktreePaths reads the same set.
   const readThreads = Effect.fn("StorageCleanup.readThreads")(function* () {
-    const active = yield* projections.getShellSnapshot();
-    const archived = yield* projections.getShellSnapshot({ location: "archive" });
+    const { threads } = yield* projections.getShellSnapshot({ location: "active" });
     const projects = yield* projectStore.listShells();
-    return { projects, threads: [...active.threads, ...archived.threads] };
+    return { projects, threads };
   });
 
   // Local threads under another project need not have a worktreePath of their own.
@@ -545,7 +546,6 @@ const make = Effect.gen(function* () {
           const latestProjects = yield* projectStore.listShells();
           if (yield* containsProjectRoot(worktreePath, [project, ...latestProjects]))
             return "contains a project checkout";
-          // Archived threads count too, so this is at least as strict as the snapshot.
           const latest = (yield* projections.getThreadWorktreePaths()).filter(
             (entry) => path.resolve(entry.worktreePath) === worktreePath,
           );
