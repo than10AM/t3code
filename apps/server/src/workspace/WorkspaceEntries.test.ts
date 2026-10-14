@@ -13,6 +13,7 @@ import { vi } from "vite-plus/test";
 import * as ServerConfig from "../config.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import { fixture } from "./workspace.testkit.ts";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -869,3 +870,27 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
     );
   });
 });
+
+it.effect("searches ignored child repositories using their own ignore rules", () =>
+  Effect.gen(function* () {
+    const { root, git: runGit } = yield* fixture;
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const entries = yield* WorkspaceEntries.WorkspaceEntries;
+    const child = path.join(root, "kasqade-fs");
+    yield* fs.writeFileString(path.join(child, "find-me.txt"), "workspace needle");
+    yield* fs.writeFileString(path.join(child, ".gitignore"), "private.txt\n");
+    yield* fs.writeFileString(path.join(child, "private.txt"), "workspace needle");
+    yield* runGit(child, ["add", "find-me.txt", ".gitignore"]);
+    yield* runGit(child, ["commit", "-m", "search fixture"]);
+    const results = yield* entries.search({ cwd: root, query: "find-me", limit: 50 });
+    expect(
+      results.entries.some(
+        (entry) => entry.path === "kasqade-fs/find-me.txt" && entry.repositoryId === child,
+      ),
+    ).toBe(true);
+    expect((yield* entries.search({ cwd: root, query: "private.txt", limit: 50 })).entries).toEqual(
+      [],
+    );
+  }).pipe(Effect.provide(layerTest)),
+);

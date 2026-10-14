@@ -1,3 +1,8 @@
+import * as WorkspaceWorktrees from "../workspace/WorkspaceWorktrees.ts";
+import * as WorkspaceSetup from "../workspace/WorkspaceSetup.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as ServerConfig from "../config.ts";
 import {
   CommandId,
   MessageId,
@@ -57,6 +62,9 @@ const asOperationFailed = (prefix: string) =>
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
+  const workspaceWorktrees = yield* WorkspaceWorktrees.WorkspaceWorktrees;
+  const workspaceSetup = yield* WorkspaceSetup.WorkspaceSetup;
+  const config = yield* ServerConfig.ServerConfig;
   const path = yield* Path.Path;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
@@ -175,6 +183,91 @@ const make = Effect.gen(function* () {
       );
     }
 
+    const workspace = projection.thread.workspace ?? project.workspace;
+    if (workspace) {
+      if (input.startFromOrigin)
+        return yield* failure(
+          "invalid_request",
+          "Workspace isolation starts from each checkout’s local commit. Fetch repositories first and pass repositoryBaseRefs for explicit bases.",
+        );
+      const ids = yield* handoffIds(scope);
+      const destination =
+        input.path ?? path.join(config.worktreesDir, `workspace-${scope.thread.threadId}`);
+      const primary = workspace.repositories.find((repo) => repo.path === projectCwd);
+      const manifest = yield* workspaceWorktrees
+        .create({
+          workspace,
+          destination,
+          branch: input.branch,
+          baseRefs: {
+            ...(input.baseRef && primary ? { [primary.id]: input.baseRef } : {}),
+            ...input.repositoryBaseRefs,
+          },
+        })
+        .pipe(asOperationFailed("Unable to prepare workspace worktrees"));
+      // Setup completes before binding and queuing a continuation. Failure retains the manifest.
+      if (input.runSetupScript ?? true)
+        yield* workspaceSetup
+          .run({ threadId: scope.thread.threadId, project, manifest })
+          .pipe(
+            asOperationFailed(
+              `Workspace setup failed at ${destination}; retry the same handoff to resume`,
+            ),
+          );
+      const continuation = yield* Effect.gen(function* () {
+        const current = yield* loadThread(scope);
+        if (current.thread.worktreePath !== null)
+          return yield* alreadyInWorktree(current.thread.worktreePath);
+        if (current.thread.archivedAt !== null)
+          return yield* failure(
+            "invalid_request",
+            "Thread was archived during workspace preparation; prepared checkouts were retained.",
+          );
+        yield* threadManagement
+          .dispatch({
+            type: "thread.metadata.update",
+            commandId: ids.commandId,
+            threadId: scope.thread.threadId,
+            branch: manifest.branch,
+            worktreePath: destination,
+            expectedWorktreePath: null,
+            workspace,
+            workspaceCheckouts: manifest.checkouts,
+          })
+          .pipe(asOperationFailed("Unable to bind workspace"));
+        return input.continuationPrompt === undefined
+          ? { status: "skipped" as const }
+          : yield* threadManagement
+              .sendToThread({
+                projectId: project.id,
+                commandId: ids.continuationCommandId,
+                threadId: scope.thread.threadId,
+                messageId: ids.continuationMessageId,
+                text: input.continuationPrompt,
+                attachments: [],
+                mode: "queue",
+                createdBy: "agent",
+                creationSource: "mcp",
+              })
+              .pipe(
+                Effect.map((result) => ({
+                  status: "scheduled" as const,
+                  delivery: result.delivery,
+                })),
+                asOperationFailed("Workspace bound, but continuation could not be queued"),
+              );
+      }).pipe(Effect.uninterruptible);
+      return {
+        worktreePath: destination,
+        branch: manifest.branch,
+        baseRef: input.baseRef ?? "HEAD",
+        startedFromOrigin: false,
+        setupScript: { status: (input.runSetupScript ?? true) ? "completed" : "skipped" },
+        continuation,
+        note: "Workspace handoff recorded. Each selected repository has an independent checkout; existing source checkouts are unchanged. Failed or dirty worktrees are retained.",
+      } satisfies WorktreeMcpHandoffResult;
+    }
+
     // The repo check runs regardless of whether baseRef was supplied, so a
     // non-repository workspace fails with an actionable error instead of an
     // opaque git failure further down.
@@ -286,7 +379,7 @@ const make = Effect.gen(function* () {
         // the worktree must succeed before deleting its freshly created branch;
         // otherwise the branch may still be checked out there.
         const removeCreatedWorktree = Effect.suspend(() =>
-          gitWorkflow.removeWorktree({ cwd: projectCwd, path: worktreePath, force: true }).pipe(
+          gitWorkflow.removeWorktree({ cwd: projectCwd, path: worktreePath, force: false }).pipe(
             Effect.andThen(
               Effect.suspend(() =>
                 gitWorkflow.deleteLocalBranch({
@@ -389,14 +482,26 @@ const make = Effect.gen(function* () {
                   ),
           );
 
+        const cursorSetupCompleted =
+          (input.runSetupScript ?? true)
+            ? yield* workspaceSetup
+                .runSingle({ threadId: scope.thread.threadId, project, destination: worktreePath })
+                .pipe(
+                  asOperationFailed(
+                    "Cursor/T3 setup failed; the worktree was retained for inspection",
+                  ),
+                )
+            : false;
         const continuation = yield* recheckAndBind.pipe(Effect.andThen(queueContinuation));
 
         yield* vcsStatusBroadcaster
           .refreshStatus(worktreePath)
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
 
-        let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        if (input.runSetupScript ?? true) {
+        let setupScript: WorktreeMcpSetupScriptStatus = {
+          status: cursorSetupCompleted ? "completed" : "skipped",
+        };
+        if ((input.runSetupScript ?? true) && !cursorSetupCompleted) {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: scope.thread.threadId,
@@ -482,6 +587,12 @@ const make = Effect.gen(function* () {
       const defaultStartFromOrigin = yield* readDefaultStartFromOrigin;
 
       const result: WorktreeMcpStatusResult = {
+        ...((projection.thread.workspace ?? project.workspace)
+          ? { workspace: projection.thread.workspace ?? project.workspace }
+          : {}),
+        ...(projection.thread.workspaceCheckouts
+          ? { workspaceCheckouts: projection.thread.workspaceCheckouts }
+          : {}),
         attached: projection.thread.worktreePath !== null,
         worktreePath: projection.thread.worktreePath,
         branch: projection.thread.branch,
@@ -495,15 +606,12 @@ const make = Effect.gen(function* () {
   return WorktreeMcpService.of({ handoff, status });
 });
 
-export const layer: Layer.Layer<
-  WorktreeMcpService,
-  never,
-  | Crypto.Crypto
-  | Path.Path
-  | ThreadManagementService.ThreadManagementService
-  | ProjectService.ProjectService
-  | ServerSettings.ServerSettingsService
-  | GitWorkflowService.GitWorkflowService
-  | ProjectSetupScriptRunner.ProjectSetupScriptRunner
-  | VcsStatusBroadcaster.VcsStatusBroadcaster
-> = Layer.effect(WorktreeMcpService, make);
+export const layer = Layer.effect(WorktreeMcpService, make).pipe(
+  Layer.provide(WorkspaceSetup.layer),
+  Layer.provide(
+    WorkspaceWorktrees.layer.pipe(
+      Layer.provide(VcsProcess.layer),
+      Layer.provide(ProcessRunner.layer),
+    ),
+  ),
+);

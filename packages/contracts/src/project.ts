@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { WorkspaceCheckout, WorkspaceConfiguration } from "./multiRepoWorkspace.ts";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
@@ -166,6 +167,7 @@ export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
@@ -199,6 +201,7 @@ export type ProjectChange = typeof ProjectChange.Type;
 export const ProjectCreatePayload = Schema.Struct({
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
   createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
@@ -208,6 +211,7 @@ export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 export const ProjectUpdatePayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
@@ -252,6 +256,7 @@ export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
 
 export const ProjectSearchEntriesInput = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   cwd: TrimmedNonEmptyString,
   // An empty query is a bounded browse: the index returns frecency-ordered
   // entries, which the file picker uses for its initial results.
@@ -263,6 +268,7 @@ export const ProjectSearchEntriesInput = Schema.Struct({
 export type ProjectSearchEntriesInput = typeof ProjectSearchEntriesInput.Type;
 
 export const ProjectEntry = Schema.Struct({
+  repositoryId: Schema.optional(Schema.String),
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
   ignored: Schema.optional(Schema.Boolean),
@@ -276,6 +282,7 @@ export const ProjectSearchEntriesResult = Schema.Struct({
 export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
 
 export const ProjectSearchContentsInput = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   cwd: TrimmedNonEmptyString,
   // Whitespace is significant in content queries (" foo", regex trailing
   // spaces), so the query is deliberately not trimmed on the wire.
@@ -294,6 +301,7 @@ export const ProjectContentMatchRange = Schema.Struct({
 export type ProjectContentMatchRange = typeof ProjectContentMatchRange.Type;
 
 export const ProjectContentMatch = Schema.Struct({
+  repositoryId: Schema.optional(Schema.String),
   path: TrimmedNonEmptyString,
   lineNumber: PositiveInt,
   lineContent: Schema.String,
@@ -309,6 +317,7 @@ export const ProjectSearchContentsResult = Schema.Struct({
 export type ProjectSearchContentsResult = typeof ProjectSearchContentsResult.Type;
 
 export const ProjectListEntriesInput = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   cwd: TrimmedNonEmptyString,
   // Present for immediate filesystem children, including ignored entries; empty means root.
   // Omitted preserves the indexed recursive listing used by older clients.
@@ -533,6 +542,7 @@ export type ProjectCreateNewInput = typeof ProjectCreateNewInput.Type;
 export const ProjectCreateNewResult = Schema.Struct({
   projectId: ProjectId,
   workspaceRoot: TrimmedNonEmptyString,
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
   /** Why the first commit failed. The project and its files exist either way. */
   commitError: Schema.optionalKey(TrimmedNonEmptyString),
 });

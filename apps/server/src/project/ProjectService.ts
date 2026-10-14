@@ -1,3 +1,8 @@
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as MultiRepoWorkspace from "../workspace/MultiRepoWorkspace.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import {
   CommandId,
   type OrchestrationProjectShell,
@@ -146,6 +151,9 @@ export class ProjectService extends Context.Service<
 >()("t3/project/ProjectService") {}
 
 export const make = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const service = yield* MultiRepoWorkspace.MultiRepoWorkspace;
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
@@ -167,6 +175,7 @@ export const make = Effect.gen(function* () {
     id: row.projectId,
     title: row.title,
     workspaceRoot: row.workspaceRoot,
+    workspace: row.workspace ?? null,
     repositoryIdentity: enrichment?.repositoryIdentity ?? null,
     faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
     defaultModelSelection: row.defaultModelSelection,
@@ -338,9 +347,31 @@ export const make = Effect.gen(function* () {
 
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
+      let workspace = input.workspace;
+      if (!input.createWorkspaceRootIfMissing && workspace === undefined) {
+        const workspaceFile = input.workspaceRoot.endsWith(".code-workspace");
+        const candidates = workspaceFile
+          ? [input.workspaceRoot]
+          : yield* fs.readDirectory(input.workspaceRoot).pipe(
+              Effect.map((entries) => entries.filter((entry) => entry.endsWith(".code-workspace"))),
+              Effect.orElseSucceed(() => [] as string[]),
+            );
+        if (candidates.length > 0) {
+          workspace = yield* service.discover({ path: input.workspaceRoot }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new ProjectOperationError({
+                  operation: "normalize-workspace",
+                  projectId: input.projectId,
+                  cause,
+                }),
+            ),
+          );
+        }
+      }
       const workspaceRoot = yield* normalizeWorkspaceRoot({
         projectId: input.projectId,
-        workspaceRoot: input.workspaceRoot,
+        workspaceRoot: workspace?.folders[0]?.path ?? input.workspaceRoot,
         createIfMissing: input.createWorkspaceRootIfMissing ?? false,
       });
       yield* commit({
@@ -350,6 +381,7 @@ export const make = Effect.gen(function* () {
         title: input.title,
         workspaceRoot,
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(workspace === undefined ? {} : { workspace }),
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
       return yield* readCommitted(input.projectId);
@@ -386,6 +418,7 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+        ...(input.workspace === undefined ? {} : { workspace: input.workspace }),
       });
       if (workspaceRoot !== previousRoot) {
         yield* projectEnrichment.invalidate([previousRoot, workspaceRoot]);
@@ -591,4 +624,10 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ProjectService, make).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
+  Layer.provide(
+    MultiRepoWorkspace.layer.pipe(
+      Layer.provide(VcsProcess.layer),
+      Layer.provide(ProcessRunner.layer),
+    ),
+  ),
 );

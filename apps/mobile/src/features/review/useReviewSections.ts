@@ -55,7 +55,10 @@ export function useReviewSections(input: {
     canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
       ? reviewEnvironment.diffPreview({
           environmentId,
-          input: { cwd: selectedThreadCwd },
+          input: {
+            cwd: selectedThreadCwd,
+            workspaceCheckouts: selectedThread?.projection.thread.workspaceCheckouts,
+          },
         })
       : null,
   );

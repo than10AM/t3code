@@ -21,6 +21,7 @@ import type {
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
+import { useSelectedThreadProjection } from "../../state/use-thread-detail";
 import { reviewEnvironment } from "../../state/review";
 
 const EMPTY_INLINE_REVIEW_COMMENTS = Object.freeze([]);
@@ -130,6 +131,7 @@ export function useReviewDiffData(input: {
   readonly draftMessage: string;
 }) {
   const { draftMessage, selectedSection, threadKey } = input;
+  const workspaceCheckouts = useSelectedThreadProjection()?.projection.thread.workspaceCheckouts;
   const selectedSectionId = selectedSection?.id ?? null;
   const source = selectedSection?.source;
   const lazySource = source?.truncated && source.files ? source : null;
@@ -172,6 +174,7 @@ export function useReviewDiffData(input: {
                     cacheKey: scope,
                     request: {
                       cwd,
+                      workspaceCheckouts,
                       ...(lazySource.baseRef ? { baseRef: lazySource.baseRef } : {}),
                       file: {
                         path: file.path,
@@ -183,7 +186,7 @@ export function useReviewDiffData(input: {
                 })
               : null,
           ),
-    [environmentId, cwd, lazySource, indices, scope],
+    [environmentId, cwd, lazySource, indices, scope, workspaceCheckouts],
   );
   const parsedQuery = useMemo(
     () =>

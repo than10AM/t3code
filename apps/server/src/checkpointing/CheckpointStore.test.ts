@@ -102,6 +102,82 @@ function buildLargeText(lineCount = 5_000): string {
 }
 
 it.layer(layerTest)("CheckpointStore.layer", (it) => {
+  it.effect(
+    "checkpoints and restores parent and children independently without parent gitlinks",
+    () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* CheckpointStore.CheckpointStore;
+        yield* initRepoWithCommit(cwd);
+        const paths = [cwd, NodePath.join(cwd, "kasqade-fs"), NodePath.join(cwd, "kasqade-ml")];
+        for (const child of paths.slice(1)) {
+          yield* fs.makeDirectory(child);
+          yield* initRepoWithCommit(child);
+        }
+        yield* writeTextFile(NodePath.join(cwd, ".gitignore"), "kasqade-fs/\nkasqade-ml/\n");
+        yield* git(cwd, ["add", ".gitignore"]);
+        yield* git(cwd, ["commit", "-m", "Ignore children"]);
+        const workspaceCheckouts = paths.map((path) => ({
+          repositoryId: path,
+          sourcePath: path,
+          path,
+          baseCommit: "HEAD",
+          branch: "main",
+          state: "ready" as const,
+        }));
+        const before = checkpointRefForThreadTurn(ThreadId.make("multi-repo"), 0);
+        const after = checkpointRefForThreadTurn(ThreadId.make("multi-repo"), 1);
+        const unselected = NodePath.join(cwd, "unselected-repository");
+        yield* fs.makeDirectory(unselected);
+        yield* initRepoWithCommit(unselected);
+        yield* store.captureCheckpoint({ cwd, workspaceCheckouts, checkpointRef: before });
+        for (const path of paths)
+          yield* writeTextFile(NodePath.join(path, "README.md"), "changed\n");
+        yield* store.captureCheckpoint({ cwd, workspaceCheckouts, checkpointRef: after });
+        const diff = yield* store.diffCheckpoints({
+          cwd,
+          workspaceCheckouts,
+          fromCheckpointRef: before,
+          toCheckpointRef: after,
+          ignoreWhitespace: false,
+          format: "numstat",
+        });
+        expect(
+          parseTurnDiffFilesFromNumstat(diff)
+            .map((file) => file.path)
+            .sort(),
+        ).toEqual(["README.md", "kasqade-fs/README.md", "kasqade-ml/README.md"]);
+        expect(yield* git(cwd, ["ls-tree", "-r", after])).not.toContain("160000");
+        const patch = yield* store.diffCheckpoints({
+          cwd,
+          workspaceCheckouts,
+          fromCheckpointRef: before,
+          toCheckpointRef: after,
+          ignoreWhitespace: false,
+        });
+        expect(patch).toContain("a/kasqade-fs/README.md");
+        expect(patch).toContain("a/kasqade-ml/README.md");
+        // A freshly constructed store reads durable refs after restart.
+        const restarted = yield* CheckpointStore.make;
+        expect(
+          yield* restarted.hasCheckpointRef({ cwd, workspaceCheckouts, checkpointRef: before }),
+        ).toBe(true);
+        // A partial capture must never allow a partial undo.
+        yield* git(paths[2]!, ["update-ref", "-d", before]);
+        expect(
+          yield* restarted.restoreCheckpoint({ cwd, workspaceCheckouts, checkpointRef: before }),
+        ).toBe(false);
+        for (const path of paths)
+          expect(yield* fs.readFileString(NodePath.join(path, "README.md"))).toBe("changed\n");
+        yield* git(paths[2]!, ["update-ref", before, "HEAD"]);
+        expect(
+          yield* restarted.restoreCheckpoint({ cwd, workspaceCheckouts, checkpointRef: before }),
+        ).toBe(true);
+        for (const path of paths)
+          expect(yield* fs.readFileString(NodePath.join(path, "README.md"))).toBe("# test\n");
+      }),
+  );
   describe("isGitRepository", () => {
     it.effect("returns false when no Git repository is detected", () =>
       Effect.gen(function* () {

@@ -345,6 +345,9 @@ export default function DiffPanel({
           environmentId: activeThread.environmentId,
           input: {
             cwd: activeCwd,
+            ...(activeThreadProjection?.thread.workspaceCheckouts
+              ? { workspaceCheckouts: activeThreadProjection.thread.workspaceCheckouts }
+              : {}),
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
           },
@@ -373,6 +376,9 @@ export default function DiffPanel({
     return createGitDiffFileContentsLoader(getDiffFileContents, {
       environmentId: activeThread.environmentId,
       cwd: preview.cwd,
+      ...(activeThreadProjection?.thread.workspaceCheckouts
+        ? { workspaceCheckouts: activeThreadProjection.thread.workspaceCheckouts }
+        : {}),
       sourceKind: selectedGitSource.kind,
       baseRef: selectedGitSource.baseRef,
       headRef: selectedGitSource.headRef,
@@ -381,6 +387,7 @@ export default function DiffPanel({
   }, [
     activeThread,
     branchDiffPreview.data,
+    activeThreadProjection,
     getDiffFileContents,
     canReadFiles,
     selectedGitSource,
@@ -479,6 +486,7 @@ export default function DiffPanel({
     settledFileCount,
     loadNextFiles,
   } = useReviewFilePatches({
+    workspaceCheckouts: activeThreadProjection?.thread.workspaceCheckouts,
     environmentId: activeThread?.environmentId,
     cwd: branchDiffPreview.data?.cwd,
     source: lazySource,

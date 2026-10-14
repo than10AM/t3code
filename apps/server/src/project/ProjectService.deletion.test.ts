@@ -1,3 +1,6 @@
+import * as MultiRepoWorkspace from "../workspace/MultiRepoWorkspace.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -39,6 +42,10 @@ const layerEventPersistence = EventSink.layer.pipe(
   Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
 );
 const layerServices = Layer.mergeAll(
+  MultiRepoWorkspace.layer.pipe(
+    Layer.provide(VcsProcess.layer),
+    Layer.provide(ProcessRunner.layer),
+  ),
   LegacyV1ThreadImporter.layer.pipe(Layer.provideMerge(layerEventPersistence)),
   ProjectionMaintenance.layer.pipe(Layer.provide(layerEventPersistence)),
   ProjectStore.layer,

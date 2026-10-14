@@ -1,3 +1,4 @@
+import { WorkspaceCheckout } from "@t3tools/contracts";
 import type { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
 import {
   ChatAttachment,
@@ -45,6 +46,7 @@ import type {
 } from "./selectionTransition.ts";
 
 export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   cwd: Schema.NullOr(Schema.String),

@@ -1,4 +1,14 @@
 import {
+  WorkspaceActionInput,
+  WorkspaceActionThreadInput,
+  WorkspaceActionsSnapshot,
+  WorkspaceDiscoverInput,
+  WorkspaceConfiguration,
+  WorkspaceOperationError,
+  WorkspaceTasksInput,
+  WorkspaceTasksResult,
+} from "./multiRepoWorkspace.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -370,6 +380,11 @@ import { VcsError } from "./vcs.ts";
 import { Project, ProjectMutation, ProjectMutationError } from "./project.ts";
 
 export const WS_METHODS = {
+  workspaceActions: "workspace.actions",
+  workspaceActionStart: "workspace.actionStart",
+  workspaceActionCancel: "workspace.actionCancel",
+  workspaceDiscover: "workspace.discover",
+  workspaceTasks: "workspace.tasks",
   // Project registry methods
   projectsList: "projects.list",
   projectsAdd: "projects.add",
@@ -1209,6 +1224,32 @@ const WsSourceControlPublishRepositoryRpc = Rpc.make(WS_METHODS.sourceControlPub
   error: Schema.Union([SourceControlRepositoryError, EnvironmentAuthorizationError]),
 });
 
+const WsWorkspaceActionsRpc = Rpc.make(WS_METHODS.workspaceActions, {
+  payload: WorkspaceActionThreadInput,
+  success: WorkspaceActionsSnapshot,
+  error: Schema.Union([WorkspaceOperationError, EnvironmentAuthorizationError]),
+});
+const WsWorkspaceActionStartRpc = Rpc.make(WS_METHODS.workspaceActionStart, {
+  payload: WorkspaceActionInput,
+  success: Schema.Void,
+  error: Schema.Union([WorkspaceOperationError, EnvironmentAuthorizationError]),
+});
+const WsWorkspaceActionCancelRpc = Rpc.make(WS_METHODS.workspaceActionCancel, {
+  payload: WorkspaceActionThreadInput,
+  success: Schema.Void,
+  error: Schema.Union([WorkspaceOperationError, EnvironmentAuthorizationError]),
+});
+const WsWorkspaceDiscoverRpc = Rpc.make(WS_METHODS.workspaceDiscover, {
+  payload: WorkspaceDiscoverInput,
+  success: WorkspaceConfiguration,
+  error: Schema.Union([WorkspaceOperationError, EnvironmentAuthorizationError]),
+});
+const WsWorkspaceTasksRpc = Rpc.make(WS_METHODS.workspaceTasks, {
+  payload: WorkspaceTasksInput,
+  success: WorkspaceTasksResult,
+  error: Schema.Union([WorkspaceOperationError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsSearchEntriesRpc = Rpc.make(WS_METHODS.projectsSearchEntries, {
   payload: ProjectSearchEntriesInput,
   success: ProjectSearchEntriesResult,
@@ -1986,6 +2027,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchEntriesRpc,
   WsProjectsEnsureScratchRpc,
   WsProjectsCreateNewRpc,
+  WsWorkspaceActionsRpc,
+  WsWorkspaceActionStartRpc,
+  WsWorkspaceActionCancelRpc,
+  WsWorkspaceDiscoverRpc,
+  WsWorkspaceTasksRpc,
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,

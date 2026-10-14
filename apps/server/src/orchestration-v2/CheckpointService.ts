@@ -122,6 +122,9 @@ export interface CheckpointServiceV2Shape {
     readonly rootNodeId: NodeId;
     readonly providerThreadId: ProviderThreadId;
     readonly cwd: string;
+    readonly workspaceCheckouts?:
+      | readonly import("@t3tools/contracts").WorkspaceCheckout[]
+      | undefined;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2CheckpointScope, CheckpointServiceV2Error>;
   readonly ensureScope: (
@@ -191,6 +194,9 @@ function makeRootRunScope(input: {
   readonly rootNodeId: NodeId;
   readonly providerThreadId: ProviderThreadId;
   readonly cwd: string;
+  readonly workspaceCheckouts?:
+    | readonly import("@t3tools/contracts").WorkspaceCheckout[]
+    | undefined;
   readonly createdAt: DateTime.Utc;
 }) {
   return Effect.gen(function* () {
@@ -209,6 +215,7 @@ function makeRootRunScope(input: {
       ordinalWithinParent: 0,
       advancesAppRunCount: true,
       cwd: input.cwd,
+      ...(input.workspaceCheckouts ? { workspaceCheckouts: input.workspaceCheckouts } : {}),
       createdAt: input.createdAt,
     } satisfies OrchestrationV2CheckpointScope;
   });
@@ -278,6 +285,9 @@ export const layer: Layer.Layer<
           });
           const exists = yield* checkpointStore.hasCheckpointRef({
             cwd: input.scope.cwd,
+            ...(input.scope.workspaceCheckouts
+              ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+              : {}),
             checkpointRef,
           });
           if (exists) {
@@ -286,6 +296,9 @@ export const layer: Layer.Layer<
 
           yield* checkpointStore.captureCheckpoint({
             cwd: input.scope.cwd,
+            ...(input.scope.workspaceCheckouts
+              ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+              : {}),
             checkpointRef,
           });
         }),
@@ -318,6 +331,9 @@ export const layer: Layer.Layer<
               ? yield* checkpointStore
                   .hasCheckpointRef({
                     cwd: input.scope.cwd,
+                    ...(input.scope.workspaceCheckouts
+                      ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+                      : {}),
                     checkpointRef,
                   })
                   .pipe(
@@ -397,6 +413,9 @@ export const layer: Layer.Layer<
           const captured = yield* checkpointStore
             .captureCheckpoint({
               cwd: input.scope.cwd,
+              ...(input.scope.workspaceCheckouts
+                ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+                : {}),
               checkpointRef,
             })
             .pipe(
@@ -429,6 +448,9 @@ export const layer: Layer.Layer<
           const previousExists = yield* checkpointStore
             .hasCheckpointRef({
               cwd: input.scope.cwd,
+              ...(input.scope.workspaceCheckouts
+                ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+                : {}),
               checkpointRef: previousCheckpointRef,
             })
             .pipe(
@@ -442,6 +464,9 @@ export const layer: Layer.Layer<
             );
           const refs = {
             cwd: input.scope.cwd,
+            ...(input.scope.workspaceCheckouts
+              ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+              : {}),
             fromCheckpointRef: previousCheckpointRef,
             toCheckpointRef: checkpointRef,
           };
@@ -470,6 +495,26 @@ export const layer: Layer.Layer<
                     .filter((file) => !isGitImport(file, authoredPaths))
                     .map((file) => ({
                       path: file.path,
+                      ...(input.scope.workspaceCheckouts
+                        ? {
+                            repositoryId: input.scope.workspaceCheckouts
+                              .map((checkout, index) => {
+                                const root = input.scope.cwd
+                                  .replaceAll("\\", "/")
+                                  .replace(/\/$/, "");
+                                const location = checkout.path.replaceAll("\\", "/");
+                                const prefix =
+                                  location === root
+                                    ? ""
+                                    : location.startsWith(root + "/")
+                                      ? location.slice(root.length + 1) + "/"
+                                      : `workspace-${index}/`;
+                                return { prefix, id: checkout.repositoryId };
+                              })
+                              .sort((a, b) => b.prefix.length - a.prefix.length)
+                              .find((entry) => file.path.startsWith(entry.prefix))?.id,
+                          }
+                        : {}),
                       kind: "modified",
                       additions: file.additions,
                       deletions: file.deletions,
@@ -523,6 +568,9 @@ export const layer: Layer.Layer<
 
           const restored = yield* checkpointStore.restoreCheckpoint({
             cwd: input.scope.cwd,
+            ...(input.scope.workspaceCheckouts
+              ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+              : {}),
             checkpointRef: input.checkpoint.ref,
             fallbackToHead: false,
           });
@@ -551,6 +599,9 @@ export const layer: Layer.Layer<
         input.scope.cwd,
         checkpointStore.deleteCheckpointRefs({
           cwd: input.scope.cwd,
+          ...(input.scope.workspaceCheckouts
+            ? { workspaceCheckouts: input.scope.workspaceCheckouts }
+            : {}),
           checkpointRefs: input.checkpoints.map((checkpoint) => checkpoint.ref),
         }),
       ).pipe(

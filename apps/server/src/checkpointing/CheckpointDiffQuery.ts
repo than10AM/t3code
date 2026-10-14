@@ -209,6 +209,7 @@ export const make = Effect.gen(function* () {
 
       const comparison = {
         cwd: toScope.cwd,
+        ...(toScope.workspaceCheckouts ? { workspaceCheckouts: toScope.workspaceCheckouts } : {}),
         fromCheckpointRef,
         toCheckpointRef: toCheckpoint.ref,
         fallbackFromToHead: false,

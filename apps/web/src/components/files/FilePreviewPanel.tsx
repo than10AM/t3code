@@ -1,3 +1,4 @@
+import { useThreadProjection } from "~/state/entities";
 import { Spinner } from "~/components/ui/spinner";
 import {
   AuthPreviewOperateScope,
@@ -1042,6 +1043,7 @@ export default function FilePreviewPanel({
   selectedFilePending,
   workspaceMutationId,
 }: FilePreviewPanelProps) {
+  const workspaceCheckouts = useThreadProjection(threadRef)?.projection.thread.workspaceCheckouts;
   const relativePath =
     attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
   // A draft's composer target is its draft id; a thread the server knows is a ref.
@@ -1488,6 +1490,7 @@ export default function FilePreviewPanel({
             )}
           >
             <FileBrowserPanel
+              workspaceCheckouts={workspaceCheckouts}
               key={`${environmentId}:${cwd}`}
               environmentId={environmentId}
               cwd={cwd}

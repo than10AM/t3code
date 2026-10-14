@@ -1605,6 +1605,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .pipe(
             Effect.flatMap((resolvedRuntimePolicy) =>
               checkpointService.prepareRootRunScope({
+                workspaceCheckouts: projection.thread.workspaceCheckouts,
                 threadId,
                 runId: queuedRun.id,
                 rootNodeId: rootNode.id,
@@ -2246,6 +2247,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const project = Option.getOrUndefined(
+      yield* projects.get(command.projectId).pipe(mapDispatchError(command)),
+    );
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
@@ -2258,6 +2262,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       interactionMode: command.interactionMode,
       branch: command.branch,
       worktreePath: command.worktreePath,
+      ...(project?.workspace
+        ? {
+            workspace: project.workspace,
+            ...(command.worktreePath === null
+              ? {
+                  workspaceCheckouts: project.workspace.repositories
+                    .filter((repo) => repo.selected)
+                    .map((repo) => ({
+                      repositoryId: repo.id,
+                      sourcePath: repo.path,
+                      path: repo.path,
+                      baseCommit: repo.head,
+                      branch: repo.branch ?? "",
+                      state: "ready" as const,
+                    })),
+                }
+              : {}),
+          }
+        : {}),
       activeProviderThreadId: null,
       lineage: {
         parentThreadId: null,
@@ -3019,6 +3042,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.workspace === undefined ? {} : { workspace: command.workspace }),
+            ...(command.workspaceCheckouts === undefined
+              ? {}
+              : { workspaceCheckouts: command.workspaceCheckouts }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {
@@ -4348,6 +4375,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          workspaceCheckouts: input.projection.thread.workspaceCheckouts,
           threadId: input.command.threadId,
           runId: targetRun.id,
           rootNodeId: nextRootNodeId,
@@ -5048,6 +5076,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
                 Effect.flatMap((resolvedRuntimePolicy) =>
                   checkpointService.prepareRootRunScope({
+                    workspaceCheckouts: projection.thread.workspaceCheckouts,
                     threadId: command.threadId,
                     runId,
                     rootNodeId,
@@ -5408,6 +5437,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   mapDispatchError(command),
                   Effect.flatMap((resolvedRuntimePolicy) =>
                     checkpointService.prepareRootRunScope({
+                      workspaceCheckouts: projection.thread.workspaceCheckouts,
                       threadId: command.threadId,
                       runId,
                       rootNodeId,
@@ -6092,6 +6122,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               );
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          workspaceCheckouts: projection.thread.workspaceCheckouts,
           threadId: command.threadId,
           runId,
           rootNodeId,
@@ -8148,6 +8179,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .pipe(mapDispatchError(command));
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
+          workspaceCheckouts: projection.thread.workspaceCheckouts,
           threadId: command.threadId,
           runId: state.run.id,
           rootNodeId: state.rootNode.id,

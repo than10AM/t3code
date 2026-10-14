@@ -1061,6 +1061,7 @@ export function makeClaudeQueryOptions(input: {
   readonly resume: boolean;
   readonly resumeSessionAt?: string;
   readonly cwd: string | null;
+  readonly workspaceDirectories?: readonly string[];
   /**
    * The attachments dir grant lets the agent Read/copy pasted images at the
    * paths appended to the turn text, without an approval prompt. It is a leaf
@@ -1169,6 +1170,7 @@ export function makeClaudeQueryOptions(input: {
     ...(Object.keys(extraArgs).length === 0 ? {} : { extraArgs }),
   };
   const additionalDirectories = [
+    ...(input.workspaceDirectories ?? []),
     ...(input.cwd === null ? [] : [input.cwd]),
     ...(input.attachmentsDir === undefined ? [] : [input.attachmentsDir]),
   ];
@@ -8501,6 +8503,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
+            ...(turnInput.runtimePolicy.workspaceCheckouts
+              ? {
+                  workspaceDirectories: turnInput.runtimePolicy.workspaceCheckouts.map(
+                    (entry) => entry.path,
+                  ),
+                }
+              : {}),
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: adapterOptions.environment,

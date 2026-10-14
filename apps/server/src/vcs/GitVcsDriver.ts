@@ -12,6 +12,7 @@ import { ChildProcessSpawner } from "effect/process";
 
 import {
   GitCommandError,
+  VcsUnsupportedOperationError,
   VcsProcessExitError,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
@@ -979,11 +980,66 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
               "-A",
               "--",
               ".",
+              ...(input.excludePaths ?? []).map((entry) => `:(exclude,literal)${entry}`),
               ...exclusions,
             ],
             env: commitEnv,
           });
-        yield* stageFiles([]).pipe(
+        const stageOwnedFiles = Effect.gen(function* () {
+          const files = yield* execute({
+            operation,
+            cwd: input.cwd,
+            args: ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "."],
+            env: commitEnv,
+            maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+            outputMode: "error",
+          });
+          const candidates = files.stdout
+            .split("\0")
+            .filter(
+              (file) =>
+                file &&
+                !input.excludePaths!.some(
+                  (excluded) => file === excluded || file.startsWith(excluded + "/"),
+                ),
+            );
+          const owned: string[] = [];
+          for (const file of candidates) {
+            // An untracked nested repository is its own owner, even when not selected.
+            if (
+              file.endsWith("/") &&
+              (yield* fileSystem.exists(path.join(input.cwd, file, ".git")).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new VcsUnsupportedOperationError({
+                      operation,
+                      kind: "git",
+                      detail: `Cannot inspect nested checkout ${file}: ${cause.message}`,
+                    }),
+                ),
+              ))
+            )
+              continue;
+            owned.push(file);
+          }
+          if (owned.length)
+            yield* execute({
+              operation,
+              cwd: input.cwd,
+              args: [
+                ...indexConfig,
+                ...durableWrite,
+                "--literal-pathspecs",
+                "add",
+                "-A",
+                "--pathspec-from-file=-",
+                "--pathspec-file-nul",
+              ],
+              stdin: [...new Set(owned)].join("\0") + "\0",
+              env: commitEnv,
+            });
+        });
+        yield* (input.excludePaths !== undefined ? stageOwnedFiles : stageFiles([])).pipe(
           Effect.catchTags({
             VcsProcessExitError: (error) =>
               Effect.gen(function* () {
@@ -1036,6 +1092,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           }),
         );
 
+        if (input.excludePaths?.length)
+          yield* execute({
+            operation,
+            cwd: input.cwd,
+            args: ["rm", "-r", "--cached", "--ignore-unmatch", "--", ...input.excludePaths],
+            env: commitEnv,
+          });
         const writeTreeResult = yield* execute({
           operation,
           cwd: input.cwd,
@@ -1108,14 +1171,31 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       const tracked = yield* execute({
         operation,
         cwd: input.cwd,
-        args: ["ls-files", "--cached", `--with-tree=${commitOid}`, "-z", "--", "."],
+        args: [
+          "ls-files",
+          "--cached",
+          `--with-tree=${commitOid}`,
+          "-z",
+          "--",
+          ".",
+          ...(input.excludePaths ?? []).map((entry) => `:(exclude,literal)${entry}`),
+        ],
       });
       // An empty index and checkpoint have nothing for git restore's pathspec to match.
       if (tracked.stdout.length > 0) {
         yield* execute({
           operation,
           cwd: input.cwd,
-          args: ["restore", "--source", commitOid, "--worktree", "--staged", "--", "."],
+          args: [
+            "restore",
+            "--source",
+            commitOid,
+            "--worktree",
+            "--staged",
+            "--",
+            ".",
+            ...(input.excludePaths ?? []).map((entry) => `:(exclude,literal)${entry}`),
+          ],
         });
       }
       // Restoring away the last tracked file can remove a nested workspace directory.
@@ -1135,7 +1215,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       const cleaned = yield* execute({
         operation,
         cwd: input.cwd,
-        args: ["clean", "-fd", "--", "."],
+        args: [
+          "clean",
+          "-fd",
+          "--",
+          ".",
+          ...(input.excludePaths ?? []).map((entry) => `:(exclude,literal)${entry}`),
+        ],
         allowNonZeroExit: true,
       });
       if (cleaned.exitCode !== 0) {
@@ -1164,7 +1250,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         yield* execute({
           operation,
           cwd: input.cwd,
-          args: ["reset", "--quiet", "--", "."],
+          args: [
+            "reset",
+            "--quiet",
+            "--",
+            ".",
+            ...(input.excludePaths ?? []).map((entry) => `:(exclude,literal)${entry}`),
+          ],
         });
       }
 
@@ -1215,7 +1307,13 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           "--no-color",
           "--no-ext-diff",
           "--no-textconv",
-          ...PATCH_RENDER_PREFIX_ARGS,
+          ...(input.pathPrefix
+            ? [
+                "--no-renames",
+                `--src-prefix=a/${input.pathPrefix}`,
+                `--dst-prefix=b/${input.pathPrefix}`,
+              ]
+            : PATCH_RENDER_PREFIX_ARGS),
           ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
           `${fromRevision}^{commit}`,
           `${input.toCheckpointRef}^{commit}`,
@@ -1239,6 +1337,14 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
         });
       }
 
+      if (input.format === "numstat" && input.pathPrefix)
+        return (
+          result.stdout
+            .split("\0")
+            .filter(Boolean)
+            .map((entry) => entry.replace(/^(\d+|-)\t(\d+|-)\t/, `$1\t$2\t${input.pathPrefix}`))
+            .join("\0") + (result.stdout ? "\0" : "")
+        );
       return result.stdout;
     }),
 

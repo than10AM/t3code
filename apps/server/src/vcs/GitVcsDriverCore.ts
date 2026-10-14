@@ -1,3 +1,7 @@
+import * as Layer from "effect/Layer";
+import * as WorkspaceWorktrees from "../workspace/WorkspaceWorktrees.ts";
+import * as VcsProcess from "./VcsProcess.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as Cache from "effect/Cache";
 import * as Data from "effect/Data";
 import * as Crypto from "effect/Crypto";
@@ -2045,8 +2049,20 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         continue;
       }
       if (line.trim().length > 0 && !line.startsWith("#")) {
-        hasWorkingTreeChanges = true;
         const pathValue = parsePorcelainPath(line);
+        // Git reports an independent, unignored child repository as one untracked
+        // directory. Its status belongs to that checkout, not the parent. Tracked
+        // submodules still follow Git's ordinary status behavior.
+        if (
+          line.startsWith("? ") &&
+          pathValue?.endsWith("/") &&
+          (yield* fileSystem
+            .exists(path.join(repositoryPaths?.worktreeRoot ?? cwd, pathValue, ".git"))
+            .pipe(Effect.orElseSucceed(() => false)))
+        ) {
+          continue;
+        }
+        hasWorkingTreeChanges = true;
         if (pathValue) changedFilesWithoutNumstat.add(pathValue);
       }
     }
@@ -2825,11 +2841,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const getReviewDiffPreview = Effect.fn("getReviewDiffPreview")(function* (
     input: ReviewDiffPreviewInput,
   ) {
-    const pathArgs = input.file
-      ? [input.file.path, ...(input.file.previousPath ? [input.file.previousPath] : [])].map(
-          (path) => `:(top,literal)${path}`,
-        )
-      : [];
+    const pathArgs = [
+      ...(input.file
+        ? [input.file.path, ...(input.file.previousPath ? [input.file.previousPath] : [])].map(
+            (path) => `:(top,literal)${path}`,
+          )
+        : []),
+      ...(input.excludePaths ?? []).map((entry) => `:(exclude,top,literal)${entry}`),
+    ];
     const patchLimit = input.file
       ? REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES
       : REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES;
@@ -2857,6 +2876,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     const diffArgs = [
       ...REVIEW_DIFF_ARGS,
+      ...(input.pathPrefix
+        ? [`--src-prefix=a/${input.pathPrefix}`, `--dst-prefix=b/${input.pathPrefix}`]
+        : []),
       ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
     ];
     const readStats = Effect.fn("GitVcsDriver.getReviewDiffPreview.stat")(function* (
@@ -2926,8 +2948,14 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         ref === null ? result : { ...result, files: undefined, stdoutTruncated: true };
       return [incomplete(dirtyRef, dirty), incomplete(review.mergeBase, base)] as const;
     }).pipe(Effect.scoped);
-    const dirtyFiles = dirtyTrackedResult.files;
-    const baseFiles = baseResult.files;
+    const prefixFiles = (files: readonly ReviewDiffFileStat[] | undefined) =>
+      files?.map((file) => ({
+        ...file,
+        path: (input.pathPrefix ?? "") + file.path,
+        previousPath: file.previousPath ? (input.pathPrefix ?? "") + file.previousPath : null,
+      }));
+    const dirtyFiles = prefixFiles(dirtyTrackedResult.files);
+    const baseFiles = prefixFiles(baseResult.files);
     const dirtyDiff = dirtyTrackedResult.stdout;
     const baseDiff = baseResult.stdout;
     const hashDiff = (diff: string, files: ReadonlyArray<ReviewDiffFileStat>) =>
@@ -3840,6 +3868,45 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const removeWorktree: GitVcsDriver.GitVcsDriver["Service"]["removeWorktree"] = Effect.fn(
     "removeWorktree",
   )(function* (input) {
+    if (
+      yield* fileSystem.exists(`${input.path}.t3-workspace.json`).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.removeWorktree",
+              command: "git",
+              cwd: input.cwd,
+              detail: "Cannot read workspace manifest",
+              cause,
+            }),
+        ),
+      )
+    ) {
+      return yield* Effect.gen(function* () {
+        const workspaces = yield* WorkspaceWorktrees.WorkspaceWorktrees;
+        yield* workspaces.remove(input.path);
+      }).pipe(
+        Effect.provide(
+          WorkspaceWorktrees.layer.pipe(
+            Layer.provide(VcsProcess.layer),
+            Layer.provide(ProcessRunner.layer),
+          ),
+        ),
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, commandSpawner),
+        Effect.mapError(
+          (cause) =>
+            new GitCommandError({
+              operation: "GitVcsDriver.removeWorktree",
+              cwd: input.cwd,
+              command: "git",
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+    }
     // Git refuses to remove a worktree with untracked files unless forced, but
     // its check honors `status.showUntrackedFiles=no` and would delete them.
     const args = ["-c", "status.showUntrackedFiles=normal", "worktree", "remove"];

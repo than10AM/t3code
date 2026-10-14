@@ -1,3 +1,4 @@
+import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -36,6 +37,7 @@ import * as PreviewAutomationBroker from "../../PreviewAutomationBroker.ts";
 import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
 
 const layerStubServices = Layer.mergeAll(
+  Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
   Layer.mock(Orchestrator.OrchestratorV2)({}),
   Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
   Layer.mock(DeviceService.DeviceService)({}),
@@ -169,6 +171,7 @@ it.effect("production mcp layer lists worktree tools over http", () =>
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-worktree-mcp-" }).pipe(
           Layer.provide(NodeServices.layer),
         ),
+        Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
         NodeServices.layer,
       ),
     ),

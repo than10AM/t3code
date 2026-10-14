@@ -947,10 +947,22 @@ export const layer: Layer.Layer<
       const routableSubagents = projection.subagents.filter((subagent) =>
         RunExecutionService.canRouteRelatedSubagent(subagent.status),
       );
-      const userText = projectComposerContextForProvider({
-        text: message.text,
-        records: message.context?.records ?? [],
-      });
+      const workspaceContext = projection.thread.workspaceCheckouts?.length
+        ? "Workspace repositories for this conversation (use these checkout paths):\n" +
+          projection.thread.workspaceCheckouts
+            .map(
+              (checkout) =>
+                `- ${checkout.repositoryId}: ${checkout.path} (branch ${checkout.branch})`,
+            )
+            .join("\n") +
+          "\nRead the parent instructions and each repository's AGENTS.md or CLAUDE.md before editing it. Treat each repository as an independent Git history.\n\n"
+        : "";
+      const userText =
+        workspaceContext +
+        projectComposerContextForProvider({
+          text: message.text,
+          records: message.context?.records ?? [],
+        });
       // Delivered once: this run's provider turn marks the work as told. A
       // restart continuation is prompted by its own text or resumes natively.
       const noteContinuation = isRestartNoteContinuation(

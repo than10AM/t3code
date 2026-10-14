@@ -1,3 +1,4 @@
+import { WorkspaceCheckout, WorkspaceConfiguration } from "./multiRepoWorkspace.ts";
 import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -20,6 +21,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
         "Branch or ref the worktree branch starts from. Defaults to the branch currently checked out in the project workspace.",
     }),
   ),
+  repositoryBaseRefs: Schema.optional(Schema.Record(Schema.String, TrimmedNonEmptyString)),
   startFromOrigin: Schema.optional(
     Schema.Boolean.annotate({
       description:
@@ -51,6 +53,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
 export type WorktreeMcpHandoffInput = typeof WorktreeMcpHandoffInput.Type;
 
 export const WorktreeMcpSetupScriptStatus = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("completed") }),
   Schema.Struct({
     status: Schema.Literal("started"),
     scriptName: TrimmedNonEmptyString,
@@ -96,6 +99,8 @@ export const WorktreeMcpHandoffResult = Schema.Struct({
 export type WorktreeMcpHandoffResult = typeof WorktreeMcpHandoffResult.Type;
 
 export const WorktreeMcpStatusResult = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
   attached: Schema.Boolean.annotate({
     description: "True when this thread is already attached to a git worktree.",
   }),

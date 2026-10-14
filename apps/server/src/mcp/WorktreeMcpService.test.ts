@@ -1,3 +1,5 @@
+import * as TerminalManager from "../terminal/Manager.ts";
+import * as ServerConfig from "../config.ts";
 import { describe, expect, it, vi } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -301,10 +303,13 @@ const makeHarness = (options: HarnessOptions = {}) => {
           Layer.provide(
             Layer.succeed(Path.Path, {
               isAbsolute: options.pathSemantics === "win32" ? win32IsAbsolute : posixIsAbsolute,
+              join: (...parts: string[]) =>
+                parts.join(options.pathSemantics === "win32" ? "\\" : "/"),
             } as unknown as Path.Path),
           ),
         );
   const layer = layerService.pipe(
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "workspace-mcp-test-" })),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ThreadManagementService.ThreadManagementService)({
@@ -334,6 +339,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
           refreshStatus,
         } satisfies Partial<VcsStatusBroadcaster.VcsStatusBroadcaster["Service"]>),
+        Layer.mock(TerminalManager.TerminalManager)({ close: () => Effect.void }),
         NodeServices.layer,
       ),
     ),
@@ -722,7 +728,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.removeWorktree).toHaveBeenCalledWith({
         cwd: workspaceRoot,
         path: "/worktrees/project/feature/dispatch-defect",
-        force: true,
+        force: false,
       });
     });
   });
@@ -737,7 +743,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.removeWorktree).toHaveBeenCalledWith({
         cwd: workspaceRoot,
         path: "/worktrees/project/feature/raced",
-        force: true,
+        force: false,
       });
       expect(harness.deleteLocalBranch).toHaveBeenCalledWith({
         cwd: workspaceRoot,
@@ -756,7 +762,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.removeWorktree).toHaveBeenCalledWith({
         cwd: workspaceRoot,
         path: "/worktrees/project/feature/recheck-fails",
-        force: true,
+        force: false,
       });
       expect(harness.dispatch).not.toHaveBeenCalled();
     });
@@ -772,7 +778,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.removeWorktree).toHaveBeenCalledWith({
         cwd: workspaceRoot,
         path: "/worktrees/project/feature/archived-race",
-        force: true,
+        force: false,
       });
     });
   });
@@ -789,7 +795,12 @@ describe("t3_worktree_handoff", () => {
   it.effect("queues the continuation even when interrupted during the binding dispatch", () =>
     Effect.gen(function* () {
       const gate = yield* Deferred.make<void>();
-      const harness = makeHarness({ dispatchGate: Deferred.await(gate) });
+      const entered = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        dispatchGate: Deferred.succeed(entered, undefined).pipe(
+          Effect.andThen(Deferred.await(gate)),
+        ),
+      });
 
       // Interrupt arrives while the metadata dispatch is in flight; the
       // binding-plus-continuation section must run to completion anyway so the
@@ -800,7 +811,7 @@ describe("t3_worktree_handoff", () => {
           continuationPrompt: "Keep going in the worktree.",
         }),
       );
-      yield* Effect.yieldNow;
+      yield* Deferred.await(entered);
       const interruption = yield* Effect.forkChild(Fiber.interrupt(fiber));
       yield* Effect.yieldNow;
       yield* Deferred.succeed(gate, undefined);
@@ -931,7 +942,7 @@ describe("t3_worktree_handoff", () => {
       expect(harness.removeWorktree).toHaveBeenCalledWith({
         cwd: workspaceRoot,
         path: "/worktrees/project/feature/dispatch-fails",
-        force: true,
+        force: false,
       });
     });
   });

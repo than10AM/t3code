@@ -1,3 +1,5 @@
+import * as WorkspaceActions from "./workspace/WorkspaceActions.ts";
+import * as MultiRepoWorkspace from "./workspace/MultiRepoWorkspace.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
 import * as Clock from "effect/Clock";
@@ -429,6 +431,23 @@ const layerWorkspaceFileSystem = WorkspaceFileSystem.layer.pipe(
 );
 
 const layerWorkspace = Layer.mergeAll(
+  WorkspaceActions.layer.pipe(
+    Layer.provide(layerTerminal),
+    Layer.provide(ProjectionStoreV2.layer),
+    Layer.provide(RuntimeLayer.layerProjectService),
+    Layer.provide(RuntimeLayer.layerProjectSetupScriptRunner.pipe(Layer.provide(layerTerminal))),
+    Layer.provide(WorkspacePaths.layer),
+    Layer.provide(
+      MultiRepoWorkspace.layer.pipe(
+        Layer.provide(VcsProcess.layer),
+        Layer.provide(ProcessRunner.layer),
+      ),
+    ),
+  ),
+  MultiRepoWorkspace.layer.pipe(
+    Layer.provide(VcsProcess.layer),
+    Layer.provide(ProcessRunner.layer),
+  ),
   WorkspacePaths.layer,
   layerWorkspaceEntries,
   layerWorkspaceFileSystem,

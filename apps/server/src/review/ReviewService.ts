@@ -104,6 +104,13 @@ export const make = Effect.gen(function* () {
     // Windows drive. Unreadable or unresolvable project roots grant nothing.
     const projects = yield* projectStore.listShells().pipe(Effect.orElseSucceed(() => []));
     for (const project of projects) {
+      for (const repository of project.workspace?.repositories.filter((repo) => repo.selected) ??
+        []) {
+        const root = yield* canonicalizePath(repository.path).pipe(
+          Effect.orElseSucceed(() => null),
+        );
+        if (root !== null && isWithinRoot(candidate, root)) return;
+      }
       const root = yield* canonicalizePath(project.workspaceRoot).pipe(
         Effect.orElseSucceed(() => null),
       );
@@ -126,6 +133,76 @@ export const make = Effect.gen(function* () {
     "ReviewService.getDiffPreview",
   )(function* (input) {
     yield* assertWorkspaceBoundCwd("ReviewService.getDiffPreview", input.cwd);
+    if (input.workspaceCheckouts?.length) {
+      const { workspaceCheckouts, ...baseInput } = input;
+      const sources: ReviewDiffPreviewResult["sources"][number][] = [];
+      for (const [index, checkout] of workspaceCheckouts.entries()) {
+        const relative = path.relative(input.cwd, checkout.path).split(path.sep).join("/");
+        const prefix =
+          relative === ""
+            ? ""
+            : relative.startsWith("../") || path.isAbsolute(relative)
+              ? `workspace-${index}/`
+              : `${relative}/`;
+        const children = workspaceCheckouts
+          .filter((child) => child.path.startsWith(checkout.path + path.sep))
+          .map((child) => path.relative(checkout.path, child.path));
+        if (
+          input.file &&
+          (!input.file.path.startsWith(prefix) ||
+            children.some((child) => input.file!.path.startsWith(prefix + child + "/")))
+        )
+          continue;
+        const result = yield* getDiffPreview({
+          ...baseInput,
+          cwd: checkout.path,
+          pathPrefix: prefix,
+          excludePaths: children,
+          ...(input.baseRef && relative === ""
+            ? { baseRef: input.baseRef }
+            : { baseRef: checkout.baseCommit }),
+          ...(input.file
+            ? {
+                file: {
+                  ...input.file,
+                  path: input.file.path.slice(prefix.length),
+                  previousPath: input.file.previousPath?.slice(prefix.length) ?? null,
+                },
+              }
+            : {}),
+        });
+        for (const source of result.sources)
+          sources.push({
+            ...source,
+            ...(source.files
+              ? {
+                  files: source.files.map((file) => ({
+                    ...file,
+                    repositoryId: checkout.repositoryId,
+                  })),
+                }
+              : {}),
+          });
+      }
+      return {
+        cwd: input.cwd,
+        generatedAt: yield* DateTime.now,
+        sources: (["working-tree", "branch-range"] as const).map((kind) => {
+          const group = sources.filter((source) => source.kind === kind);
+          return {
+            id: kind,
+            kind,
+            title: kind === "working-tree" ? "Workspace uncommitted changes" : "Workspace changes",
+            baseRef: null,
+            headRef: null,
+            diff: group.map((source) => source.diff).join(""),
+            diffHash: group.map((source) => source.diffHash).join("-") || "empty",
+            truncated: group.some((source) => source.truncated),
+            files: group.flatMap((source) => source.files ?? []),
+          };
+        }),
+      };
+    }
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (!handle) {
@@ -155,6 +232,36 @@ export const make = Effect.gen(function* () {
     "ReviewService.getDiffFileContents",
   )(function* (input) {
     yield* assertWorkspaceBoundCwd("ReviewService.getDiffFileContents", input.cwd);
+    if (input.workspaceCheckouts?.length) {
+      const { workspaceCheckouts, ...baseInput } = input;
+      const candidates = workspaceCheckouts
+        .map((checkout, index) => {
+          const relative = path.relative(input.cwd, checkout.path).split(path.sep).join("/");
+          return {
+            checkout,
+            prefix:
+              relative === ""
+                ? ""
+                : relative.startsWith("../") || path.isAbsolute(relative)
+                  ? `workspace-${index}/`
+                  : relative + "/",
+          };
+        })
+        .sort((a, b) => b.prefix.length - a.prefix.length);
+      const matched = candidates.find(
+        ({ prefix }) => input.newPath.startsWith(prefix) || input.oldPath.startsWith(prefix),
+      );
+      if (matched) {
+        const { checkout, prefix } = matched;
+        return yield* getDiffFileContents({
+          ...baseInput,
+          cwd: checkout.path,
+          oldPath: input.oldPath.slice(prefix.length),
+          newPath: input.newPath.slice(prefix.length),
+          baseRef: input.sourceKind === "branch-range" ? checkout.baseCommit : input.baseRef,
+        });
+      }
+    }
 
     const handle = yield* vcsRegistry.detect({ cwd: input.cwd, requestedKind: "auto" });
     if (handle?.kind !== "git") {

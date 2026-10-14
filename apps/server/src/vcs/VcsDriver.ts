@@ -15,17 +15,20 @@ import { CheckpointRef } from "@t3tools/contracts";
 import * as VcsProcess from "./VcsProcess.ts";
 
 export interface VcsCaptureCheckpointInput {
+  readonly excludePaths?: readonly string[];
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
 }
 
 export interface VcsRestoreCheckpointInput {
+  readonly excludePaths?: readonly string[];
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
   readonly fallbackToHead?: boolean;
 }
 
 export interface VcsDiffCheckpointsInput {
+  readonly pathPrefix?: string;
   readonly cwd: string;
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;

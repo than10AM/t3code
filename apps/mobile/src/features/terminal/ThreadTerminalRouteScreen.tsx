@@ -1,3 +1,4 @@
+import { WorkspaceTasksControl } from "./WorkspaceTasksControl";
 import {
   AuthTerminalReadScope,
   AuthTerminalOperateScope,
@@ -1177,6 +1178,10 @@ export function ThreadTerminalRouteScreen(props: ThreadTerminalRouteScreenProps)
           }}
         />
       ) : null}
+      <WorkspaceTasksControl
+        environmentId={selectedThread.environmentId}
+        threadId={selectedThread.id}
+      />
       <TerminalHeader
         canOperateTerminal={canOperateTerminal}
         subtitle={headerSubtitle}

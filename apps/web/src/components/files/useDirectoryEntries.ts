@@ -7,7 +7,11 @@ import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { projectEnvironment } from "~/state/projects";
 
 /** Loads only requested directories; collapsing a folder keeps its children cached. */
-export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
+export function useDirectoryEntries(
+  environmentId: EnvironmentId,
+  cwd: string,
+  workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[],
+) {
   const [directories, setDirectories] = useState(new Map<string, readonly ProjectEntry[]>());
   const [errors, setErrors] = useState(new Map<string, string>());
   const [pending, setPending] = useState(0);
@@ -28,7 +32,10 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       if (!refresh && loaded.current.has(directoryPath)) return Promise.resolve();
       loaded.current.add(directoryPath);
       requested.current.add(directoryPath);
-      const atom = projectEnvironment.listEntries({ environmentId, input: { cwd, directoryPath } });
+      const atom = projectEnvironment.listEntries({
+        environmentId,
+        input: { cwd, directoryPath, workspaceCheckouts },
+      });
       setPending((count) => count + 1);
       if (!refresh) setLoadingDirectories((previous) => new Set(previous).add(directoryPath));
       const request = (async () => {
@@ -90,7 +97,7 @@ export function useDirectoryEntries(environmentId: EnvironmentId, cwd: string) {
       requests.current.set(directoryPath, request);
       return request;
     },
-    [cwd, environmentId],
+    [cwd, environmentId, workspaceCheckouts],
   );
 
   useEffect(() => {

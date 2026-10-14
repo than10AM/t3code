@@ -22,6 +22,7 @@ const filePathCollator = new Intl.Collator(undefined, {
 
 export function useReviewFilePatches({
   environmentId,
+  workspaceCheckouts,
   cwd,
   source,
   baseRef,
@@ -32,6 +33,7 @@ export function useReviewFilePatches({
 }: {
   environmentId: EnvironmentId | undefined;
   cwd: string | undefined;
+  workspaceCheckouts?: import("@t3tools/contracts").ReviewDiffPreviewInput["workspaceCheckouts"];
   source: ReviewDiffPreviewSource | null;
   baseRef: string | null;
   ignoreWhitespace: boolean;
@@ -73,6 +75,7 @@ export function useReviewFilePatches({
                     cacheKey: scope,
                     request: {
                       cwd,
+                      ...(workspaceCheckouts ? { workspaceCheckouts } : {}),
                       ...(baseRef ? { baseRef } : {}),
                       ignoreWhitespace,
                       file: {
@@ -85,7 +88,17 @@ export function useReviewFilePatches({
                 }),
               };
             }),
-    [environmentId, cwd, source, files, indices, scope, baseRef, ignoreWhitespace],
+    [
+      workspaceCheckouts,
+      environmentId,
+      cwd,
+      source,
+      files,
+      indices,
+      scope,
+      baseRef,
+      ignoreWhitespace,
+    ],
   );
   const previousPreview = useRef({ scope, revision, queries: [] as typeof queries });
   useEffect(() => {

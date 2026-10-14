@@ -1,3 +1,5 @@
+import * as WorkspaceActions from "./workspace/WorkspaceActions.ts";
+import * as MultiRepoWorkspace from "./workspace/MultiRepoWorkspace.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1301,6 +1303,8 @@ const layerWsRpc = (
       const storageCleanup = yield* StorageCleanup.StorageCleanup;
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const startup = yield* ServerRuntimeStartup.ServerRuntimeStartup;
+      const workspaceActions = yield* WorkspaceActions.WorkspaceActions;
+      const multiRepoWorkspace = yield* MultiRepoWorkspace.MultiRepoWorkspace;
       const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem.WorkspaceFileSystem;
       const serverEnvironment = yield* ServerEnvironment.ServerEnvironment;
@@ -2618,6 +2622,11 @@ const layerWsRpc = (
               (cause) => new OrchestrationDispatchCommandError({ message: cause.message, cause }),
             ),
           ),
+        [WS_METHODS.workspaceActions]: (input) => workspaceActions.snapshot(input.threadId),
+        [WS_METHODS.workspaceActionStart]: (input) => workspaceActions.start(input),
+        [WS_METHODS.workspaceActionCancel]: (input) => workspaceActions.cancel(input.threadId),
+        [WS_METHODS.workspaceDiscover]: (input) => multiRepoWorkspace.discover(input),
+        [WS_METHODS.workspaceTasks]: (input) => multiRepoWorkspace.tasks(input),
         [WS_METHODS.projectsCreateNew]: (input) =>
           managedFolders
             .createNamedProject(input)

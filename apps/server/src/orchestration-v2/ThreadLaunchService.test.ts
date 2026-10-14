@@ -205,6 +205,8 @@ function makeHarness(options: HarnessOptions = {}) {
       }),
   );
   const layerLaunch = ThreadLaunch.layer.pipe(
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "workspace-launch-test-" })),
+    Layer.provide(NodeServices.layer),
     Layer.provide(
       Layer.mergeAll(
         layerExternalServices,

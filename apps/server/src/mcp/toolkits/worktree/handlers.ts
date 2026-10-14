@@ -19,7 +19,7 @@ const handlers = {
           code: "capability_denied",
           message: "This credential cannot inspect worktrees.",
         });
-      const { threadId, ...refs } = input;
+      const { threadId, repositoryId, ...refs } = input;
       const {
         projection: { thread },
       } = yield* readThread(threadId);
@@ -30,9 +30,20 @@ const handlers = {
           code: "invalid_request",
           message: "The project was not found.",
         });
+      const checkout = repositoryId
+        ? thread.workspaceCheckouts?.find((entry) => entry.repositoryId === repositoryId)
+        : undefined;
+      if (repositoryId && !checkout)
+        return yield* new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "Repository is not selected for this thread.",
+        });
       const git = yield* GitWorkflow.GitWorkflowService;
       return yield* git
-        .listRefs({ ...refs, cwd: thread.worktreePath ?? project.value.workspaceRoot })
+        .listRefs({
+          ...refs,
+          cwd: checkout?.path ?? thread.worktreePath ?? project.value.workspaceRoot,
+        })
         .pipe(Effect.mapError(unavailable));
     }),
   ),

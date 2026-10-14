@@ -24,17 +24,20 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 
 export interface CaptureCheckpointInput {
   readonly cwd: string;
+  readonly workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
   readonly checkpointRef: CheckpointRef;
 }
 
 export interface RestoreCheckpointInput {
   readonly cwd: string;
+  readonly workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
   readonly checkpointRef: CheckpointRef;
   readonly fallbackToHead?: boolean;
 }
 
 export interface DiffCheckpointsInput {
   readonly cwd: string;
+  readonly workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;
   readonly fallbackFromToHead?: boolean;
@@ -46,12 +49,14 @@ export interface DiffCheckpointsInput {
 
 export interface ListAuthoredPathsInput {
   readonly cwd: string;
+  readonly workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
   readonly fromCheckpointRef: CheckpointRef;
   readonly toCheckpointRef: CheckpointRef;
 }
 
 export interface DeleteCheckpointRefsInput {
   readonly cwd: string;
+  readonly workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
   readonly checkpointRefs: ReadonlyArray<CheckpointRef>;
 }
 
@@ -143,49 +148,136 @@ export const make = Effect.gen(function* () {
       .detect({ cwd, requestedKind: "git" })
       .pipe(Effect.map((repository) => repository !== null));
 
+  const targets = (input: {
+    cwd: string;
+    workspaceCheckouts?: readonly import("@t3tools/contracts").WorkspaceCheckout[];
+  }) => {
+    const root = input.cwd.replaceAll("\\", "/").replace(/\/$/, "");
+    return (
+      input.workspaceCheckouts?.length
+        ? input.workspaceCheckouts
+        : [{ path: input.cwd, repositoryId: input.cwd }]
+    ).map((checkout, index) => {
+      const cwd = checkout.path;
+      const normalized = cwd.replaceAll("\\", "/");
+      const prefix =
+        normalized === root
+          ? ""
+          : normalized.startsWith(root + "/")
+            ? normalized.slice(root.length + 1) + "/"
+            : `workspace-${index}/`;
+      const excludePaths = (input.workspaceCheckouts ?? [])
+        .filter(
+          (child) =>
+            child.path !== cwd && child.path.replaceAll("\\", "/").startsWith(normalized + "/"),
+        )
+        .map((child) => child.path.slice(cwd.length + 1));
+      return { cwd, prefix, excludePaths };
+    });
+  };
+
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints("CheckpointStore.captureCheckpoint", input.cwd);
-    return yield* checkpoints.captureCheckpoint(input);
+    for (const target of targets(input)) {
+      const checkpoints = yield* resolveCheckpoints(
+        "CheckpointStore.captureCheckpoint",
+        target.cwd,
+      );
+      yield* checkpoints.captureCheckpoint({
+        ...input,
+        cwd: target.cwd,
+        ...(input.workspaceCheckouts ? { excludePaths: target.excludePaths } : {}),
+      });
+    }
   });
 
   const hasCheckpointRef: CheckpointStore["Service"]["hasCheckpointRef"] = Effect.fn(
     "hasCheckpointRef",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints("CheckpointStore.hasCheckpointRef", input.cwd);
-    return yield* checkpoints.hasCheckpointRef(input);
+    for (const target of targets(input)) {
+      const checkpoints = yield* resolveCheckpoints("CheckpointStore.hasCheckpointRef", target.cwd);
+      if (!(yield* checkpoints.hasCheckpointRef({ ...input, cwd: target.cwd }))) return false;
+    }
+    return true;
   });
 
   const restoreCheckpoint: CheckpointStore["Service"]["restoreCheckpoint"] = Effect.fn(
     "restoreCheckpoint",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints("CheckpointStore.restoreCheckpoint", input.cwd);
-    return yield* checkpoints.restoreCheckpoint(input);
+    // Preflight every ref before the first repository is changed.
+    if (!input.fallbackToHead && !(yield* hasCheckpointRef(input))) return false;
+    for (const target of targets(input).reverse()) {
+      const checkpoints = yield* resolveCheckpoints(
+        "CheckpointStore.restoreCheckpoint",
+        target.cwd,
+      );
+      if (
+        !(yield* checkpoints.restoreCheckpoint({
+          ...input,
+          cwd: target.cwd,
+          excludePaths: target.excludePaths,
+        }))
+      )
+        return false;
+    }
+    return true;
   });
 
   const diffCheckpoints: CheckpointStore["Service"]["diffCheckpoints"] = Effect.fn(
     "diffCheckpoints",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints("CheckpointStore.diffCheckpoints", input.cwd);
-    return yield* checkpoints.diffCheckpoints(input);
+    const diffs: string[] = [];
+    for (const target of targets(input)) {
+      const checkpoints = yield* resolveCheckpoints("CheckpointStore.diffCheckpoints", target.cwd);
+      const filePaths = input.filePaths
+        ?.filter(
+          (file) =>
+            file.startsWith(target.prefix) &&
+            !target.excludePaths.some((excluded) =>
+              file.startsWith(target.prefix + excluded + "/"),
+            ),
+        )
+        .map((file) => file.slice(target.prefix.length));
+      diffs.push(
+        yield* checkpoints.diffCheckpoints({
+          ...input,
+          cwd: target.cwd,
+          pathPrefix: target.prefix,
+          ...(filePaths ? { filePaths } : {}),
+        }),
+      );
+    }
+    return diffs.join("");
   });
 
   const listAuthoredPaths: CheckpointStore["Service"]["listAuthoredPaths"] = Effect.fn(
     "listAuthoredPaths",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints("CheckpointStore.listAuthoredPaths", input.cwd);
-    return yield* checkpoints.listAuthoredPaths(input);
+    // A null filter preserves every repository's edits when any HEAD is unchanged.
+    const paths = new Set<string>();
+    for (const target of targets(input)) {
+      const checkpoints = yield* resolveCheckpoints(
+        "CheckpointStore.listAuthoredPaths",
+        target.cwd,
+      );
+      const authored = yield* checkpoints.listAuthoredPaths({ ...input, cwd: target.cwd });
+      if (authored === null) return null;
+      for (const file of authored) paths.add(target.prefix + file);
+    }
+    return paths;
   });
 
   const deleteCheckpointRefs: CheckpointStore["Service"]["deleteCheckpointRefs"] = Effect.fn(
     "deleteCheckpointRefs",
   )(function* (input) {
-    const checkpoints = yield* resolveCheckpoints(
-      "CheckpointStore.deleteCheckpointRefs",
-      input.cwd,
-    );
-    return yield* checkpoints.deleteCheckpointRefs(input);
+    for (const target of targets(input)) {
+      const checkpoints = yield* resolveCheckpoints(
+        "CheckpointStore.deleteCheckpointRefs",
+        target.cwd,
+      );
+      yield* checkpoints.deleteCheckpointRefs({ ...input, cwd: target.cwd });
+    }
   });
 
   return CheckpointStore.of({

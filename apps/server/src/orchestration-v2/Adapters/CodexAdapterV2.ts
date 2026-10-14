@@ -736,10 +736,26 @@ export function buildCodexTurnStartParams(input: {
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    let sandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    if (
+      input.runtimePolicy.sandboxPolicy === undefined &&
+      sandboxPolicy?.type === "workspaceWrite" &&
+      input.runtimePolicy.workspaceCheckouts?.length
+    ) {
+      sandboxPolicy = {
+        ...sandboxPolicy,
+        writableRoots: [
+          ...new Set([
+            ...(sandboxPolicy.writableRoots ?? []),
+            ...(input.runtimePolicy.cwd ? [input.runtimePolicy.cwd] : []),
+            ...input.runtimePolicy.workspaceCheckouts.map((entry) => entry.path),
+          ]),
+        ],
+      };
+    }
     const selectedEffort = getModelSelectionStringOptionValue(
       input.modelSelection,
       "reasoningEffort",

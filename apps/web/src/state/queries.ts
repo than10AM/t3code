@@ -204,6 +204,9 @@ export function usePaginatedBranches(target: VcsRefTarget) {
 }
 
 type ProjectPathSearchTarget = ComposerPathSearchTarget & {
+  readonly workspaceCheckouts?:
+    | readonly import("@t3tools/contracts").WorkspaceCheckout[]
+    | undefined;
   readonly kind?: ProjectEntryKind | undefined;
   readonly imageOnly?: boolean | undefined;
 };
@@ -234,8 +237,16 @@ export function useProjectPathSearch(
       query: target.query == null ? null : target.query.trim(),
       kind: target.kind,
       imageOnly: target.imageOnly,
+      workspaceCheckouts: target.workspaceCheckouts,
     }),
-    [target.cwd, target.environmentId, target.imageOnly, target.kind, target.query],
+    [
+      target.cwd,
+      target.environmentId,
+      target.imageOnly,
+      target.kind,
+      target.query,
+      target.workspaceCheckouts,
+    ],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, PROJECT_PATH_SEARCH_DEBOUNCE_MS);
   const fileAccess = useFilesystemReadAccess(debouncedTarget.environmentId);
@@ -249,6 +260,7 @@ export function useProjectPathSearch(
           environmentId: debouncedTarget.environmentId,
           input: {
             cwd: debouncedTarget.cwd,
+            workspaceCheckouts: debouncedTarget.workspaceCheckouts,
             query: debouncedTarget.query,
             limit,
             ...(debouncedTarget.kind ? { kind: debouncedTarget.kind } : {}),

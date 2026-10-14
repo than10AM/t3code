@@ -192,3 +192,50 @@ On mobile, use **Settings → Source control** to change selected environment de
 T3 Code only pulls when it can fast-forward and the checkout has no changed files, untracked files,
 or local commits. It skips checkouts on another branch or without an upstream. If a checkout has
 local work, resolve it yourself before automatic pulls can resume.
+
+## VS Code workspaces and nested repositories
+
+Add a project using a `.code-workspace` path, or use **Project settings → Workspace
+repositories → Discover**. JSONC files can list several folders or one parent
+folder with `git.autoRepositoryDetection: "subFolders"` and
+`git.repositoryScanMaxDepth: 1`. Ignored child repositories are discovered
+independently. Main checkouts are selected initially; choosing an alternate
+worktree replaces the selection for that repository. Refresh discovery to find
+new repositories, then save the selection. Existing conversations keep their
+recorded checkout paths.
+
+A new isolated conversation creates a worktree for each selected repository.
+Nested paths stay nested, and tracked shared configuration and relative symlinks
+are preserved. Each repository starts at its selected checkout's current commit;
+set a repository's base ref in project settings to override it. The same new
+branch name must be available in every selected repository. Workspace folders
+must belong to selected repositories to use isolated mode.
+
+Workspace setup runs the parent's Cursor setup, then its T3 setup, followed by
+those phases for each child. `.cursor/worktrees.json` supports platform-specific
+keys, sequential command arrays, and script paths relative to that file. The
+worktree's file takes precedence over the original checkout's file.
+`ROOT_WORKTREE_PATH` identifies the original checkout; `T3CODE_WORKSPACE_ROOT`
+identifies the isolated workspace. Setup must succeed before the agent starts.
+Failed worktrees remain available; retry resumes completed setup phases.
+Cleanup checks every repository and refuses dirty checkouts.
+
+Open **Workspace tasks** in the conversation's workspace controls (or the mobile
+terminal screen) to run `.vscode/tasks.json` and workspace-level tasks directly.
+Imported tasks are manual. Shell commands, string arguments, `options.cwd`,
+`${workspaceFolder}` and named workspace-folder variables, foreground and
+background tasks, parallel compounds, and sequential foreground dependencies
+are supported. Dependencies are validated before launch and shared dependencies
+run once. Each command has an owned terminal and an exit status. Stop cancels
+that task group. A running background task does not imply service readiness.
+Problem matchers, sequential background readiness, non-shell tasks, custom
+variable resolvers, platform task overrides, and automatic `runOptions` report
+errors. Supported terminal presentation fields are `reveal`, `panel`, `group`,
+and `close`.
+
+Use the repository selector to open a shell or Git actions for a particular
+checkout. Workspace file search reads each repository's ignore rules. Working
+tree and conversation diffs keep nested paths distinct, and undo restores each
+repository's own checkpoint. The MCP worktree status includes checkout mappings;
+`t3_worktree_list` accepts a `repositoryId`, and workspace handoff accepts
+`repositoryBaseRefs` keyed by repository ID.

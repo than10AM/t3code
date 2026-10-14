@@ -1,9 +1,13 @@
+import { WorkspaceCheckout } from "./multiRepoWorkspace.ts";
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { GitCommandError } from "./git.ts";
 import { VcsError } from "./vcs.ts";
 
 export const ReviewDiffPreviewInput = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
+  excludePaths: Schema.optional(Schema.Array(Schema.String)),
+  pathPrefix: Schema.optional(Schema.String),
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
@@ -21,6 +25,7 @@ export const ReviewDiffPreviewSourceKind = Schema.Literals(["working-tree", "bra
 export type ReviewDiffPreviewSourceKind = typeof ReviewDiffPreviewSourceKind.Type;
 
 export const ReviewDiffFileStat = Schema.Struct({
+  repositoryId: Schema.optional(Schema.String),
   path: Schema.String,
   previousPath: Schema.NullOr(Schema.String),
   additions: Schema.Number,
@@ -43,6 +48,7 @@ export const ReviewDiffPreviewSource = Schema.Struct({
 export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
 export const ReviewDiffFileContentsInput = Schema.Struct({
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   cwd: TrimmedNonEmptyString,
   sourceKind: ReviewDiffPreviewSourceKind,
   changeType: Schema.Literals(["change", "rename-pure", "rename-changed", "new", "deleted"]),

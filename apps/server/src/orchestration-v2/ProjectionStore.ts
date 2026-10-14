@@ -216,12 +216,15 @@ const ProjectionCheckpointContext = Schema.Struct({
     OrchestrationV2RunJsonSchema.mapFields(({ id, ordinal, status }) => ({ id, ordinal, status })),
   ),
   checkpointScopes: Schema.Array(
-    OrchestrationV2CheckpointScopeJsonSchema.mapFields(({ id, runId, kind, cwd }) => ({
-      id,
-      runId,
-      kind,
-      cwd,
-    })),
+    OrchestrationV2CheckpointScopeJsonSchema.mapFields(
+      ({ id, runId, kind, cwd, workspaceCheckouts }) => ({
+        id,
+        runId,
+        kind,
+        cwd,
+        workspaceCheckouts,
+      }),
+    ),
   ),
   checkpoints: Schema.Array(
     OrchestrationV2CheckpointJsonSchema.mapFields(
@@ -6437,12 +6440,15 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           }
           return {
             runs: projection.runs.map(({ id, ordinal, status }) => ({ id, ordinal, status })),
-            checkpointScopes: projection.checkpointScopes.map(({ id, runId, kind, cwd }) => ({
-              id,
-              runId,
-              kind,
-              cwd,
-            })),
+            checkpointScopes: projection.checkpointScopes.map(
+              ({ id, runId, kind, cwd, workspaceCheckouts }) => ({
+                id,
+                runId,
+                kind,
+                cwd,
+                ...(workspaceCheckouts ? { workspaceCheckouts } : {}),
+              }),
+            ),
             checkpoints: projection.checkpoints.map(
               ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
                 scopeId,

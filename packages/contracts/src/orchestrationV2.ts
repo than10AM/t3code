@@ -1,3 +1,4 @@
+import { WorkspaceConfiguration, WorkspaceCheckout } from "./multiRepoWorkspace.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -372,6 +373,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   /** Pull request the user linked to this thread (#8160); optional so
       pre-linking servers still decode. */
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
@@ -532,6 +535,7 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    repositoryBaseRefs: Schema.optional(Schema.Record(Schema.String, TrimmedNonEmptyString)),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
@@ -805,6 +809,7 @@ export const OrchestrationV2CheckpointScope = Schema.Struct({
   ordinalWithinParent: NonNegativeInt,
   advancesAppRunCount: Schema.Boolean,
   cwd: TrimmedNonEmptyString,
+  workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
   createdAt: Schema.DateTimeUtc,
 });
 export type OrchestrationV2CheckpointScope = typeof OrchestrationV2CheckpointScope.Type;
@@ -1283,6 +1288,7 @@ export const OrchestrationV2PlanArtifact = Schema.Union([
 export type OrchestrationV2PlanArtifact = typeof OrchestrationV2PlanArtifact.Type;
 
 export const OrchestrationV2CheckpointFileSummary = Schema.Struct({
+  repositoryId: Schema.optional(Schema.String),
   path: TrimmedNonEmptyString,
   kind: TrimmedNonEmptyString,
   additions: NonNegativeInt,
@@ -2840,6 +2846,8 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("thread.metadata.update"),
+    workspace: Schema.optional(Schema.NullOr(WorkspaceConfiguration)),
+    workspaceCheckouts: Schema.optional(Schema.Array(WorkspaceCheckout)),
     commandId: CommandId,
     threadId: ThreadId,
     title: Schema.optional(TrimmedNonEmptyString),

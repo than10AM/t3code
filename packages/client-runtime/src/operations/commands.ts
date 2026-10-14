@@ -1,3 +1,4 @@
+import type { WorkspaceConfiguration } from "@t3tools/contracts";
 import { remapComposerContextAttachments } from "@t3tools/shared/composerContextReferences";
 import {
   type ThreadLinkedPullRequest,
@@ -45,6 +46,7 @@ export interface CreateProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
+  readonly workspace?: WorkspaceConfiguration | null;
   readonly createWorkspaceRootIfMissing?: boolean;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
@@ -54,6 +56,7 @@ export interface UpdateProjectInput extends CommandMetadata {
   readonly projectId: ProjectId;
   readonly title?: string;
   readonly workspaceRoot?: string;
+  readonly workspace?: WorkspaceConfiguration | null;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly autoPull?: boolean;
   readonly projectIcon?: ProjectIconOverride | null;
@@ -319,6 +322,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly projectId: ProjectId;
         readonly title: string;
         readonly workspaceRoot: string;
+        readonly workspace?: WorkspaceConfiguration | null;
         readonly createWorkspaceRootIfMissing?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
@@ -329,6 +333,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly projectId: ProjectId;
         readonly title?: string;
         readonly workspaceRoot?: string;
+        readonly workspace?: WorkspaceConfiguration | null;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
       }
@@ -358,6 +363,7 @@ export const createProject = Effect.fn("EnvironmentCommands.createProject")(func
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.workspace === undefined ? {} : { workspace: input.workspace }),
   });
 });
 
@@ -380,6 +386,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
       ? {}
       : { defaultThreadEnvMode: input.defaultThreadEnvMode }),
     ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
+    ...(input.workspace === undefined ? {} : { workspace: input.workspace }),
   });
 });
 

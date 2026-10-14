@@ -1,3 +1,4 @@
+import { WorkspaceActionsControl } from "../WorkspaceActionsControl";
 import type {
   EditorId,
   EnvironmentId,
@@ -131,6 +132,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                 />
               ) : null}
 
+              <WorkspaceActionsControl
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+              />
               {props.activeProjectScripts ? (
                 <ProjectScriptsControl
                   environmentId={props.environmentId}

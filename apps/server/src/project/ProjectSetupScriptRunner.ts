@@ -61,6 +61,11 @@ export interface ProjectSetupScriptRunnerInput {
   readonly projectCwd?: string;
   readonly worktreePath: string;
   readonly preferredTerminalId?: string;
+  /** Explicit action execution reuses terminal ownership and completion reporting. */
+  readonly scriptOverride?: ProjectScript;
+  readonly extraEnv?: Readonly<Record<string, string>>;
+  readonly waitForCompletion?: boolean;
+  readonly closeOnSuccess?: boolean;
   /** Which project script to run. Defaults to the worktree setup script. */
   readonly trigger?: "setup" | "settle";
   readonly project?: {
@@ -368,7 +373,8 @@ export const make = Effect.gen(function* () {
     const trigger = input.trigger ?? "setup";
     const scripts = resolveProjectScripts(settings, project);
     const script =
-      trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts);
+      input.scriptOverride ??
+      (trigger === "settle" ? settleProjectScript(scripts) : setupProjectScript(scripts));
     if (!script) {
       return {
         status: "no-script",
@@ -392,6 +398,7 @@ export const make = Effect.gen(function* () {
       // as Vite+ wait for terminal replies that nobody can send at that point.
       // Keep TERM's 256-color support without advertising truecolor here.
       COLORTERM: "",
+      ...input.extraEnv,
     };
     const observe = input.observeCompletion;
     const completionToken = observe
@@ -461,7 +468,7 @@ export const make = Effect.gen(function* () {
     // terminal history. A failed run keeps its shell open for a look.
     const completion = observed?.completion.pipe(
       Effect.tap(({ exitCode }) =>
-        exitCode === 0
+        exitCode === 0 && input.closeOnSuccess !== false
           ? terminalManager.closeIdle({ threadId: input.threadId, terminalId })
           : Effect.void,
       ),
@@ -474,7 +481,7 @@ export const make = Effect.gen(function* () {
       scriptCommand: script.command,
       terminalId,
       cwd,
-      async: script.async !== false,
+      async: input.waitForCompletion ? false : script.async !== false,
       ...(completion ? { completion } : {}),
     } as const;
   });

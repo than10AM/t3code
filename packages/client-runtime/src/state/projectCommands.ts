@@ -101,6 +101,26 @@ export function createProjectEnvironmentAtoms<R, E>(
       JSON.stringify([environmentId, input.projectId]),
   };
   return {
+    workspaceActions: createEnvironmentRpcCommand(runtime, {
+      label: "workspace:actions",
+      tag: WS_METHODS.workspaceActions,
+    }),
+    workspaceActionStart: createEnvironmentRpcCommand(runtime, {
+      label: "workspace:actionStart",
+      tag: WS_METHODS.workspaceActionStart,
+    }),
+    workspaceActionCancel: createEnvironmentRpcCommand(runtime, {
+      label: "workspace:actionCancel",
+      tag: WS_METHODS.workspaceActionCancel,
+    }),
+    discoverWorkspace: createEnvironmentRpcCommand(runtime, {
+      label: "workspace:discover",
+      tag: WS_METHODS.workspaceDiscover,
+    }),
+    workspaceTasks: createEnvironmentRpcCommand(runtime, {
+      label: "workspace:tasks",
+      tag: WS_METHODS.workspaceTasks,
+    }),
     fileMetadata: fileMetadata.metadata,
     fileMetadataThread: fileMetadata.retainThread,
     invalidateFileMetadata: createEnvironmentCommand(runtime, {

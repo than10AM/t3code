@@ -1,3 +1,6 @@
+import * as MultiRepoWorkspace from "../workspace/MultiRepoWorkspace.ts";
+import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { CommandId, type Project, ProjectId, ProviderInstanceId } from "@t3tools/contracts";
@@ -70,6 +73,10 @@ const layerTest = layerTestFor(layerMetadata);
 
 /** Every dependency of ProjectService.make, so a test can swap one of them. */
 const layerProjectServiceDependencies = Layer.mergeAll(
+  MultiRepoWorkspace.layer.pipe(
+    Layer.provide(VcsProcess.layer),
+    Layer.provide(ProcessRunner.layer),
+  ),
   RuntimeLayer.layerEventSink,
   ProjectStore.layer,
   ProjectionStore.layer,
@@ -83,7 +90,7 @@ const layerProjectServiceDependencies = Layer.mergeAll(
   Layer.provideMerge(SqlitePersistence.layerMemory),
   Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "project-service-race-" })),
-  Layer.provide(NodeServices.layer),
+  Layer.provideMerge(NodeServices.layer),
 );
 
 const waitForProject = Effect.fn("ProjectServiceTest.waitForProject")(function* (

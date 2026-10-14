@@ -1499,6 +1499,37 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
   });
 
   describe("review diff previews", () => {
+    it.effect("separates parent and nested repository previews, including ignored children", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const path = yield* Path.Path;
+        const fs = yield* FileSystem.FileSystem;
+        yield* writeTextFile(cwd, ".gitignore", "child/\n");
+        yield* git(cwd, ["add", ".gitignore"]);
+        yield* git(cwd, ["commit", "-m", "ignore child"]);
+        const child = path.join(cwd, "child");
+        yield* fs.makeDirectory(child);
+        yield* initRepoWithCommit(child);
+        yield* writeTextFile(cwd, "README.md", "parent changed\n");
+        yield* writeTextFile(child, "README.md", "child changed\n");
+        yield* writeTextFile(cwd, "new.txt", "parent new\n");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const parent = yield* driver.getReviewDiffPreview({ cwd, excludePaths: ["child"] });
+        const nested = yield* driver.getReviewDiffPreview({ cwd: child, pathPrefix: "child/" });
+        const parentDiff = parent.sources.find((source) => source.kind === "working-tree")!;
+        const childDiff = nested.sources.find((source) => source.kind === "working-tree")!;
+        assert.notInclude(parentDiff.diff, "child changed");
+        assert.include(parentDiff.diff, "parent changed");
+        assert.include(parentDiff.diff, "parent new");
+        assert.include(childDiff.diff, "b/child/README.md");
+        assert.deepStrictEqual(
+          childDiff.files?.map((file) => file.path),
+          ["child/README.md"],
+        );
+      }),
+    );
+
     it.effect("loads repository-relative files from a nested project directory", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -2005,6 +2036,12 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         }
         yield* git(cwd, ["add", "."]);
         yield* git(cwd, ["update-index", "--chmod=+x", "mode-only.sh"]);
+        if ((yield* HostProcess.Platform) !== "win32") {
+          // The preview compares the working tree too; update-index does not chmod the file.
+          const fs = yield* FileSystem.FileSystem;
+          const path = yield* Path.Path;
+          yield* fs.chmod(path.join(cwd, "mode-only.sh"), 0o755);
+        }
         yield* git(cwd, ["commit", "-m", "rename and add files"]);
         const preview = yield* driver.getReviewDiffPreview({
           cwd,
@@ -2013,6 +2050,7 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
         const branch = preview.sources.find((source) => source.kind === "branch-range")!;
         for (const path of ["renamed.md", "[literal].txt", " leading.txt", "mode-only.sh"]) {
           const stat = branch.files!.find((file) => file.path === path)!;
+          assert.isDefined(stat, `Missing diff stat for ${path}`);
           const request = yield* Schema.decodeEffect(ReviewDiffPreviewInput)({
             cwd,
             baseRef: initialBranch,
@@ -2265,6 +2303,34 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
           .getReviewDiffPreview({ cwd, baseRef: "missing-base" })
           .pipe(Effect.flip);
         assert.strictEqual(error.operation, "GitVcsDriver.resolveReviewMergeBase");
+      }),
+    );
+
+    it.effect("reports independent child repository status separately from its parent", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const pathService = yield* Path.Path;
+        const child = pathService.join(cwd, "child");
+        yield* writeTextFile(child, "README.md", "child\n");
+        yield* initRepoWithCommit(child);
+        yield* writeTextFile(child, "README.md", "changed child\n");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const parentStatus = yield* driver.statusDetailsLocal(cwd);
+        assert.equal(parentStatus.hasWorkingTreeChanges, false);
+        assert.deepStrictEqual(parentStatus.workingTree.files, []);
+        const childStatus = yield* driver.statusDetailsLocal(child);
+        assert.equal(childStatus.hasWorkingTreeChanges, true);
+        assert.deepStrictEqual(
+          childStatus.workingTree.files.map((file) => file.path),
+          ["README.md"],
+        );
+        yield* writeTextFile(cwd, "parent.txt", "parent\n");
+        const changedParent = yield* driver.statusDetailsLocal(cwd);
+        assert.deepStrictEqual(
+          changedParent.workingTree.files.map((file) => file.path),
+          ["parent.txt"],
+        );
       }),
     );
 
